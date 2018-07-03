@@ -13,7 +13,7 @@ Download data `database.sqlite.zip` from  <https://www.kaggle.com/hugomathien/so
 ## Access to data base
 
 ```{r}
-DATA_DIR <- file.path("..", "football_data")
+DATA_DIR <- file.path("C:/Users/alejandro.suarez/Desktop/Big_data_management/sql_dplyr_exercise/football_data")
 library(RSQLite)
 sql_con <- dbConnect(
   SQLite(), 
@@ -53,6 +53,7 @@ match_db <- tbl(sql_con, "Match")
 First let us introduce pipes.
 ```{r}
 print("Hello world!")
+
 "Hello world!" %>%
   print
 ```
@@ -93,6 +94,13 @@ player_db %>%
   head(10)
 ```
 
+```{r}
+"SELECT name
+FROM League
+LIMIT 10" %>%
+  dbGetQuery(sql_con, .)
+```
+
 ## WHERE ~ filter
 
 ```{sql where_sql, connection=sql_con}
@@ -107,6 +115,14 @@ player_db %>%
   filter(birthday >= '1998') %>%
   head(5)
 ```
+
+```{sql connection=sql_con}
+SELECT id
+FROM Team
+WHERE team_fifa_api_id >= 1000
+LIMIT 6
+```
+
 
 ## ORDER ~ arrange
 
@@ -137,6 +153,14 @@ ORDER BY birthday DESC
 LIMIT 5" %>%
   dbGetQuery(sql_con, .)
 ```
+
+```{sql connection=sql_con}
+SELECT *
+FROM Team
+ORDER BY id 
+LIMIT 5
+```
+
 ## AS ~ mutate
 
 ```{r}
@@ -152,6 +176,13 @@ player_db %>%
 FROM Player
 LIMIT 3" %>%
   dbGetQuery(sql_con, .)
+```
+
+```{sql connection=sql_con}
+SELECT player_name
+, height/100 AS height_m
+FROM Player
+LIMIT 5
 ```
 
 ## aggregators ~ summarise
@@ -173,6 +204,13 @@ player_db %>%
 FROM Player
 " %>%
   dbGetQuery(sql_con, .)
+```
+
+```{sql connection=sql_con}
+SELECT AVG(overall_rating) AS mean_overall_rating
+, STDEV(finishing) AS finishing_STD
+FROM Player_Attributes 
+LIMIT 5
 ```
 
 ## GROUP BY ~ group_by
@@ -203,9 +241,21 @@ player_db %>%
   theme_minimal()
 ```
 
-
+```{r}
+library('ggplot2')
+"SELECT sprint_speed
+,   AVG(potential) as potential
+FROM Player_attributes
+GROUP BY sprint_speed " %>%
+  dbGetQuery(sql_con, .) %>%
+  ggplot(., aes(sprint_speed, potential)) +
+  geom_line(colour="red") +
+  theme_minimal()
+```
 
 ## Joins
+
+
 
 ```{sql connection=sql_con}
 SELECT Player.player_name
@@ -220,7 +270,14 @@ ON Player.player_api_id = pa.player_api_id
 ORDER BY pa.max_rating DESC
 LIMIT 10
 ```
-...
+
+```{sql connection=sql_con}
+SELECT *
+FROM Player
+LIMIT 4
+```
+
+
 
 ```{r}
 player_db <- tbl(sql_con, "Player")
@@ -285,6 +342,12 @@ FROM Match" %>%
   dbGetQuery(sql_con, .)
 ```
 
+```{r}
+match_db %>%
+  summarise(
+    n_samples = n())
+```
+
 
 ```{r}
 "SELECT country_id
@@ -294,6 +357,14 @@ GROUP BY country_id
 ORDER BY n DESC" %>%
   dbGetQuery(sql_con, .)
 ```
+
+```{r}
+match_db %>%
+  group_by(country_id) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n)) 
+```
+
 
 ```{r}
 match_db <- tbl_df(dbGetQuery(sql_con,"SELECT * FROM Match"))
@@ -308,12 +379,72 @@ match_db %>%
   select(name, country_id, home_team_api_id) %>%
   group_by(name) %>%
   summarise(teams = n_distinct(home_team_api_id)) %>%
-  arrange(desc(teams))
+  arrange(desc(teams)) 
 ```
 
-* List 5 players and their highest rating that had the lowest potential ever.
+* List 5 players and their highest rating that had the lowest ratting ever.
+```{sql connection=sql_con}
+SELECT p.player_name
+, pa.player_api_id
+, MIN(overall_rating) AS min_rating
+, MAX(overall_rating) AS max_rating
+FROM Player_Attributes pa
+LEFT JOIN Player p
+ON pa.player_api_id = p.player_api_id
+GROUP BY 1, 2
+ORDER BY min_rating
+LIMIT 10 
+```
+
+```{r}
+player_attributes_db %>%
+  group_by(player_api_id)%>%
+  summarise(
+    min_rating=min(overall_rating),
+    max_rating=max(overall_rating)) %>%
+  arrange(min_rating)%>%
+  left_join(player_db, by='player_api_id') %>%
+  select(player_name, max_rating) %>%
+  show_query()
+
+```
 
 * Which team has the higest average of goles when playing home in season 2008/2009 in Poland?
+
+```{r}
+library(whisker)
+template <- "
+SELECT 
+FROM Player
+WHERE player_name = '{{{player_name}}}'
+"
+```
+
+
+```{sql connection=sql_con}
+SELECT pa.avg_home_goals
+, p.team_long_name
+, c.name
+FROM(
+SELECT AVG(home_team_goal) AS avg_home_goals
+, country_id
+, home_team_api_id
+FROM Match
+WHERE season = '2008/2009' AND country_id = 15722
+GROUP BY home_team_api_id
+ORDER BY avg_home_goals DESC) pa
+LEFT JOIN team p
+ON pa.home_team_api_id = p.team_api_id
+LEFT JOIN Country c
+ON pa.country_id = c.id
+LIMIT 1
+```
+
+```{sql connection=sql_con}
+SELECT *
+FROM team
+```
+
 
 * Which team and from which country and which season scored the higest number of goals?
 
